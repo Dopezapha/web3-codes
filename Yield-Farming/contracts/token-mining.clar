@@ -28,6 +28,8 @@
 (define-constant ERR-INVALID-RATE (err u105))
 (define-constant ERR-UPDATE-FAILED (err u109))
 (define-constant ERR-TRANSFER-FAILED (err u110))
+(define-constant ERR-ARITHMETIC-OVERFLOW (err u111))
+(define-constant ERR-ARITHMETIC-UNDERFLOW (err u112))
 
 (define-map staker-info 
   {staker: principal}
@@ -43,6 +45,15 @@
       (lp-token-principal (contract-of lp-token))
     )
     (asserts! (is-none (var-get owner)) ERR-ALREADY-INITIALIZED)
+    ;; Check if the token implements the necessary functions
+    (asserts! (is-ok (contract-call? token get-name)) ERR-INVALID-TOKEN-CONTRACT)
+    (asserts! (is-ok (contract-call? token get-symbol)) ERR-INVALID-TOKEN-CONTRACT)
+    (asserts! (is-ok (contract-call? token get-decimals)) ERR-INVALID-TOKEN-CONTRACT)
+    ;; Check if the lp-token implements the necessary functions
+    (asserts! (is-ok (contract-call? lp-token get-name)) ERR-INVALID-LP-TOKEN-CONTRACT)
+    (asserts! (is-ok (contract-call? lp-token get-symbol)) ERR-INVALID-LP-TOKEN-CONTRACT)
+    (asserts! (is-ok (contract-call? lp-token get-decimals)) ERR-INVALID-LP-TOKEN-CONTRACT)
+    ;; If all checks pass, set the contract variables
     (var-set token-address (some token-principal))
     (var-set lp-token-address (some lp-token-principal))
     (var-set last-update-time block-height)
@@ -53,29 +64,33 @@
 
 ;; is-owner function
 (define-private (is-owner)
-  (is-eq tx-sender (unwrap! (var-get owner) ERR-NOT-AUTHORIZED))
+  (match (var-get owner)
+    current-owner (is-eq tx-sender current-owner)
+    false
+  )
 )
 
 ;; Update reward variables
 (define-private (update-reward)
-  (begin
-    (let (
-      (current-time block-height)
-      (time-elapsed (- current-time (var-get last-update-time)))
-      (rewards (/ (* time-elapsed (var-get reward-rate)) PRECISION))
-      (current-supply (var-get total-supply))
+  (let (
+    (current-time block-height)
+    (time-elapsed (- current-time (var-get last-update-time)))
+    (rewards (/ (* time-elapsed (var-get reward-rate)) PRECISION))
+    (current-supply (var-get total-supply))
+  )
+    (if (> current-supply u0)
+      (let ((new-reward-per-token (+ (var-get reward-per-token-stored) 
+                                     (/ (* rewards PRECISION) current-supply))))
+        (if (< new-reward-per-token (var-get reward-per-token-stored))
+          ERR-ARITHMETIC-OVERFLOW
+          (begin
+            (var-set reward-per-token-stored new-reward-per-token)
+            (var-set last-update-time current-time)
+            (ok true))))
+      (begin
+        (var-set last-update-time current-time)
+        (ok true))
     )
-      (if (> current-supply u0)
-        (var-set reward-per-token-stored 
-          (+ (var-get reward-per-token-stored) 
-             (/ (* rewards PRECISION) current-supply)
-          )
-        )
-        (var-set reward-per-token-stored (var-get reward-per-token-stored))
-      )
-      (var-set last-update-time current-time)
-    )
-    (ok true)
   )
 )
 
@@ -89,23 +104,19 @@
     (asserts! (> amount u0) ERR-INVALID-AMOUNT)
     (asserts! (is-eq (contract-of lp-token) (unwrap! (var-get lp-token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-LP-TOKEN-CONTRACT)
     (match (update-reward)
-      success (begin
-        (map-set staker-info 
-          {staker: sender}
-          {
-            balance: (+ current-balance amount),
-            reward-debt: (/ (* (+ current-balance amount) (var-get reward-per-token-stored)) PRECISION)
-          }
-        )
-        (var-set total-supply (+ (var-get total-supply) amount))
-        (let ((transfer-result (contract-call? lp-token transfer amount sender (as-contract tx-sender) none)))
-          (if (is-ok transfer-result)
-            (ok true)
-            (err ERR-TRANSFER-FAILED)
+      success
+        (begin
+          (map-set staker-info 
+            {staker: sender}
+            {
+              balance: (+ current-balance amount),
+              reward-debt: (/ (* (+ current-balance amount) (var-get reward-per-token-stored)) PRECISION)
+            }
           )
+          (var-set total-supply (+ (var-get total-supply) amount))
+          (as-contract (contract-call? lp-token transfer amount sender (as-contract tx-sender) none))
         )
-      )
-      error ERR-UPDATE-FAILED
+      error (err error)
     )
   )
 )
@@ -120,23 +131,19 @@
     (asserts! (>= current-balance amount) ERR-INSUFFICIENT-BALANCE)
     (asserts! (is-eq (contract-of lp-token) (unwrap! (var-get lp-token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-LP-TOKEN-CONTRACT)
     (match (update-reward)
-      success (begin
-        (map-set staker-info 
-          {staker: sender}
-          {
-            balance: (- current-balance amount),
-            reward-debt: (/ (* (- current-balance amount) (var-get reward-per-token-stored)) PRECISION)
-          }
-        )
-        (var-set total-supply (- (var-get total-supply) amount))
-        (let ((transfer-result (contract-call? lp-token transfer amount tx-sender sender none)))
-          (if (is-ok transfer-result)
-            (ok true)
-            (err ERR-TRANSFER-FAILED)
+      success
+        (begin
+          (map-set staker-info 
+            {staker: sender}
+            {
+              balance: (- current-balance amount),
+              reward-debt: (/ (* (- current-balance amount) (var-get reward-per-token-stored)) PRECISION)
+            }
           )
+          (var-set total-supply (- (var-get total-supply) amount))
+          (as-contract (contract-call? lp-token transfer amount tx-sender sender none))
         )
-      )
-      error ERR-UPDATE-FAILED
+      error (err error)
     )
   )
 )
@@ -151,24 +158,22 @@
   )
     (asserts! (is-eq (contract-of token) (unwrap! (var-get token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-TOKEN-CONTRACT)
     (match (update-reward)
-      success (let (
-        (reward (/ (- (* balance (var-get reward-per-token-stored)) (* reward-debt PRECISION)) PRECISION))
-      )
-        (map-set staker-info 
-          {staker: sender}
-          {
-            balance: balance,
-            reward-debt: (/ (* balance (var-get reward-per-token-stored)) PRECISION)
-          }
+      success
+        (let (
+          (reward-calculation (- (* balance (var-get reward-per-token-stored)) (* reward-debt PRECISION)))
+          (reward (/ reward-calculation PRECISION))
         )
-        (let ((transfer-result (contract-call? token transfer reward tx-sender sender none)))
-          (if (is-ok transfer-result)
-            (ok true)
-            (err ERR-TRANSFER-FAILED)
+          (asserts! (>= reward u0) ERR-ARITHMETIC-UNDERFLOW)
+          (map-set staker-info 
+            {staker: sender}
+            {
+              balance: balance,
+              reward-debt: (/ (* balance (var-get reward-per-token-stored)) PRECISION)
+            }
           )
+          (as-contract (contract-call? token transfer reward tx-sender sender none))
         )
-      )
-      error ERR-UPDATE-FAILED
+      error (err error)
     )
   )
 )
@@ -179,11 +184,12 @@
     (asserts! (is-owner) ERR-NOT-AUTHORIZED)
     (asserts! (and (>= new-rate MIN-RATE) (<= new-rate MAX-RATE)) ERR-INVALID-RATE)
     (match (update-reward)
-      success (begin
-        (var-set reward-rate new-rate)
-        (ok true)
-      )
-      error ERR-UPDATE-FAILED
+      success
+        (begin
+          (var-set reward-rate new-rate)
+          (ok true)
+        )
+      error (err error)
     )
   )
 )

@@ -1,4 +1,4 @@
-# Liquidity Mining Smart Contract
+# This is a smart contract on Liquidity Mining
 
 ## Overview
 

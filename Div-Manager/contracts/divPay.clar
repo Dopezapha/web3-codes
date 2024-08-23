@@ -6,15 +6,20 @@
 (define-constant err-no-dividends (err u101))
 (define-constant err-transfer-failed (err u102))
 (define-constant err-invalid-amount (err u103))
+(define-constant err-update-balance-failed (err u104))
+(define-constant err-withdrawal-period-not-reached (err u105))
+(define-constant err-no-unclaimed-dividends (err u106))
+(define-constant WITHDRAWAL_PERIOD u10000)
 
 ;; Data variables
 (define-data-var total-dividends uint u0)
 (define-data-var dividends-per-token uint u0)
 (define-data-var last-distribution-block uint u0)
 (define-data-var total-stx-balance uint u0)
+(define-data-var claimed-dividends uint u0)
 
 ;; Data maps
-(define-map claimed-dividends principal uint)
+(define-map user-claimed-dividends principal uint)
 (define-map user-balances principal uint)
 
 ;; Read-only functions
@@ -25,13 +30,17 @@
 (define-read-only (get-claimable-amount (account principal))
   (let (
     (balance (stx-get-balance account))
-    (claimed (default-to u0 (map-get? claimed-dividends account)))
+    (claimed (default-to u0 (map-get? user-claimed-dividends account)))
     (total-claim (* balance (var-get dividends-per-token)))
   )
     (if (> total-claim claimed)
         (- total-claim claimed)
         u0)
   )
+)
+
+(define-read-only (get-contract-balance)
+  (stx-get-balance (as-contract tx-sender))
 )
 
 ;; Private functions
@@ -66,19 +75,42 @@
   )
     (map-set user-balances tx-sender current-balance)
     (var-set total-stx-balance (+ (var-get total-stx-balance) (- current-balance previous-balance)))
-    (ok current-balance)  ;; Return the current balance as part of the response
+    (ok current-balance)
   )
 )
 
 (define-public (claim-dividends)
   (let (
-    (balance (unwrap! (update-balance) (err u104)))  ;; Use unwrap! instead of try!
+    (balance (unwrap! (update-balance) err-update-balance-failed))
     (claimable (get-claimable-amount tx-sender))
   )
     (asserts! (> claimable u0) err-no-dividends)
-    (map-set claimed-dividends tx-sender 
-             (+ (default-to u0 (map-get? claimed-dividends tx-sender)) claimable))
+    (map-set user-claimed-dividends tx-sender 
+             (+ (default-to u0 (map-get? user-claimed-dividends tx-sender)) claimable))
+    (var-set claimed-dividends (+ (var-get claimed-dividends) claimable))
     (as-contract (stx-transfer? claimable tx-sender tx-sender))
+  )
+)
+
+(define-public (update-total-supply)
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (var-set total-stx-balance (stx-get-balance (as-contract tx-sender)))
+    (ok (var-get total-stx-balance))
+  )
+)
+
+(define-public (withdraw-unclaimed-dividends)
+  (let (
+    (current-block block-height)
+    (last-distribution (var-get last-distribution-block))
+    (unclaimed-amount (- (var-get total-dividends) (var-get claimed-dividends)))
+  )
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (> (- current-block last-distribution) WITHDRAWAL_PERIOD) err-withdrawal-period-not-reached)
+    (asserts! (> unclaimed-amount u0) err-no-unclaimed-dividends)
+    (var-set total-dividends (- (var-get total-dividends) unclaimed-amount))
+    (as-contract (stx-transfer? unclaimed-amount tx-sender contract-owner))
   )
 )
 
@@ -88,4 +120,5 @@
   (var-set dividends-per-token u0)
   (var-set last-distribution-block block-height)
   (var-set total-stx-balance u0)
+  (var-set claimed-dividends u0)
 )

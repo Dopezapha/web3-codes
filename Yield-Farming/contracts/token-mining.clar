@@ -1,192 +1,192 @@
 ;; Smart contract managing Liquidity Mining.
 
 ;; Token trait definition
-(use-trait ft-trait .sip-010-trait.sip-010-trait)
+(use-trait fungible-token .sip-010-trait.sip-010-trait)
 
 ;; Define the contract
-(define-data-var token-address (optional principal) none)
-(define-data-var lp-token-address (optional principal) none)
-(define-data-var reward-rate uint u100)
-(define-data-var last-update-time uint u0)
-(define-data-var reward-per-token-stored uint u0)
-(define-data-var total-supply uint u0)
-(define-data-var owner (optional principal) none)
-(define-constant MIN-RATE u1)
-(define-constant MAX-RATE u1000)
+(define-data-var yield-token-contract (optional principal) none)
+(define-data-var pool-token-contract (optional principal) none)
+(define-data-var emission-rate uint u100)
+(define-data-var last-emission-time uint u0)
+(define-data-var cumulative-yield-per-share uint u0)
+(define-data-var locked-tokens uint u0)
+(define-data-var contract-manager (optional principal) none)
+(define-constant LOWEST-RATE u1)
+(define-constant HIGHEST-RATE u1000)
 
 ;; Precision constant
-(define-constant PRECISION u1000000)
+(define-constant SCALE-FACTOR u1000000)
 
 ;; Error constants
-(define-constant ERR-NOT-AUTHORIZED (err u100))
-(define-constant ERR-NOT-INITIALIZED (err u101))
-(define-constant ERR-ALREADY-INITIALIZED (err u102))
-(define-constant ERR-INSUFFICIENT-BALANCE (err u103))
-(define-constant ERR-INVALID-TOKEN-CONTRACT (err u106))
-(define-constant ERR-INVALID-LP-TOKEN-CONTRACT (err u107))
-(define-constant ERR-INVALID-AMOUNT (err u104))
-(define-constant ERR-INVALID-RATE (err u105))
-(define-constant ERR-UPDATE-FAILED (err u109))
-(define-constant ERR-TRANSFER-FAILED (err u110))
-(define-constant ERR-ARITHMETIC-OVERFLOW (err u111))
-(define-constant ERR-ARITHMETIC-UNDERFLOW (err u112))
+(define-constant ERR-FORBIDDEN (err u100))
+(define-constant ERR-NOT-READY (err u101))
+(define-constant ERR-DUPLICATE-INIT (err u102))
+(define-constant ERR-LOW-BALANCE (err u103))
+(define-constant ERR-WRONG-YIELD-TOKEN (err u106))
+(define-constant ERR-WRONG-POOL-TOKEN (err u107))
+(define-constant ERR-ZERO-AMOUNT (err u104))
+(define-constant ERR-RATE-OUT-OF-BOUNDS (err u105))
+(define-constant ERR-YIELD-CALC-FAILED (err u109))
+(define-constant ERR-TOKEN-TRANSFER-FAILED (err u110))
+(define-constant ERR-CALCULATION-OVERFLOW (err u111))
+(define-constant ERR-CALCULATION-UNDERFLOW (err u112))
 
-(define-map staker-info 
-  {staker: principal}
-  {balance: uint, reward-debt: uint}
+(define-map user-records 
+  {user: principal}
+  {locked-amount: uint, yield-debt: uint}
 )
 
 ;; Initialize the contract
-(define-public (initialize (token <ft-trait>) (lp-token <ft-trait>))
+(define-public (bootstrap (yield-token <fungible-token>) (pool-token <fungible-token>))
   (let 
     (
       (caller tx-sender)
-      (token-principal (contract-of token))
-      (lp-token-principal (contract-of lp-token))
+      (yield-contract (contract-of yield-token))
+      (pool-contract (contract-of pool-token))
     )
-    (asserts! (is-none (var-get owner)) ERR-ALREADY-INITIALIZED)
-    ;; Check if the token implements the necessary functions
-    (asserts! (is-ok (contract-call? token get-name)) ERR-INVALID-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? token get-symbol)) ERR-INVALID-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? token get-decimals)) ERR-INVALID-TOKEN-CONTRACT)
-    ;; Check if the lp-token implements the necessary functions
-    (asserts! (is-ok (contract-call? lp-token get-name)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? lp-token get-symbol)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? lp-token get-decimals)) ERR-INVALID-LP-TOKEN-CONTRACT)
+    (asserts! (is-none (var-get contract-manager)) ERR-DUPLICATE-INIT)
+    ;; Check if the yield-token implements the necessary functions
+    (asserts! (is-ok (contract-call? yield-token get-name)) ERR-WRONG-YIELD-TOKEN)
+    (asserts! (is-ok (contract-call? yield-token get-symbol)) ERR-WRONG-YIELD-TOKEN)
+    (asserts! (is-ok (contract-call? yield-token get-decimals)) ERR-WRONG-YIELD-TOKEN)
+    ;; Check if the pool-token implements the necessary functions
+    (asserts! (is-ok (contract-call? pool-token get-name)) ERR-WRONG-POOL-TOKEN)
+    (asserts! (is-ok (contract-call? pool-token get-symbol)) ERR-WRONG-POOL-TOKEN)
+    (asserts! (is-ok (contract-call? pool-token get-decimals)) ERR-WRONG-POOL-TOKEN)
     ;; If all checks pass, set the contract variables
-    (var-set token-address (some token-principal))
-    (var-set lp-token-address (some lp-token-principal))
-    (var-set last-update-time block-height)
-    (var-set owner (some caller))
+    (var-set yield-token-contract (some yield-contract))
+    (var-set pool-token-contract (some pool-contract))
+    (var-set last-emission-time block-height)
+    (var-set contract-manager (some caller))
     (ok true)
   )
 )
 
-;; is-owner function
-(define-private (is-owner)
-  (match (var-get owner)
-    current-owner (is-eq tx-sender current-owner)
+;; is-manager function
+(define-private (is-manager)
+  (match (var-get contract-manager)
+    current-manager (is-eq tx-sender current-manager)
     false
   )
 )
 
-;; Update reward variables
-(define-private (update-reward)
+;; Update yield variables
+(define-private (recalculate-yield)
   (let (
     (current-time block-height)
-    (time-elapsed (- current-time (var-get last-update-time)))
-    (rewards (/ (* time-elapsed (var-get reward-rate)) PRECISION))
-    (current-supply (var-get total-supply))
+    (time-diff (- current-time (var-get last-emission-time)))
+    (yield-amount (/ (* time-diff (var-get emission-rate)) SCALE-FACTOR))
+    (current-locked (var-get locked-tokens))
   )
-    (if (> current-supply u0)
-      (let ((new-reward-per-token (+ (var-get reward-per-token-stored) 
-                                     (/ (* rewards PRECISION) current-supply))))
-        (if (< new-reward-per-token (var-get reward-per-token-stored))
-          ERR-ARITHMETIC-OVERFLOW
+    (if (> current-locked u0)
+      (let ((new-cumulative-yield (+ (var-get cumulative-yield-per-share) 
+                                     (/ (* yield-amount SCALE-FACTOR) current-locked))))
+        (if (< new-cumulative-yield (var-get cumulative-yield-per-share))
+          ERR-CALCULATION-OVERFLOW
           (begin
-            (var-set reward-per-token-stored new-reward-per-token)
-            (var-set last-update-time current-time)
+            (var-set cumulative-yield-per-share new-cumulative-yield)
+            (var-set last-emission-time current-time)
             (ok true))))
       (begin
-        (var-set last-update-time current-time)
+        (var-set last-emission-time current-time)
         (ok true))
     )
   )
 )
 
-;; Stake LP tokens
-(define-public (stake (amount uint) (lp-token <ft-trait>))
+;; Lock pool tokens
+(define-public (lock (amount uint) (pool-token <fungible-token>))
   (let (
-    (sender tx-sender)
-    (staker-data (default-to {balance: u0, reward-debt: u0} (map-get? staker-info {staker: sender})))
-    (current-balance (get balance staker-data))
+    (user tx-sender)
+    (user-data (default-to {locked-amount: u0, yield-debt: u0} (map-get? user-records {user: user})))
+    (current-locked (get locked-amount user-data))
   )
-    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
-    (asserts! (is-eq (contract-of lp-token) (unwrap! (var-get lp-token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (match (update-reward)
+    (asserts! (> amount u0) ERR-ZERO-AMOUNT)
+    (asserts! (is-eq (contract-of pool-token) (unwrap! (var-get pool-token-contract) ERR-NOT-READY)) ERR-WRONG-POOL-TOKEN)
+    (match (recalculate-yield)
       success
         (begin
-          (map-set staker-info 
-            {staker: sender}
+          (map-set user-records 
+            {user: user}
             {
-              balance: (+ current-balance amount),
-              reward-debt: (/ (* (+ current-balance amount) (var-get reward-per-token-stored)) PRECISION)
+              locked-amount: (+ current-locked amount),
+              yield-debt: (/ (* (+ current-locked amount) (var-get cumulative-yield-per-share)) SCALE-FACTOR)
             }
           )
-          (var-set total-supply (+ (var-get total-supply) amount))
-          (as-contract (contract-call? lp-token transfer amount sender (as-contract tx-sender) none))
+          (var-set locked-tokens (+ (var-get locked-tokens) amount))
+          (as-contract (contract-call? pool-token transfer amount user (as-contract tx-sender) none))
         )
       error (err error)
     )
   )
 )
 
-;; Withdraw LP tokens
-(define-public (withdraw (amount uint) (lp-token <ft-trait>))
+;; Unlock pool tokens
+(define-public (unlock (amount uint) (pool-token <fungible-token>))
   (let (
-    (sender tx-sender)
-    (staker-data (unwrap! (map-get? staker-info {staker: sender}) ERR-INSUFFICIENT-BALANCE))
-    (current-balance (get balance staker-data))
+    (user tx-sender)
+    (user-data (unwrap! (map-get? user-records {user: user}) ERR-LOW-BALANCE))
+    (current-locked (get locked-amount user-data))
   )
-    (asserts! (>= current-balance amount) ERR-INSUFFICIENT-BALANCE)
-    (asserts! (is-eq (contract-of lp-token) (unwrap! (var-get lp-token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (match (update-reward)
+    (asserts! (>= current-locked amount) ERR-LOW-BALANCE)
+    (asserts! (is-eq (contract-of pool-token) (unwrap! (var-get pool-token-contract) ERR-NOT-READY)) ERR-WRONG-POOL-TOKEN)
+    (match (recalculate-yield)
       success
         (begin
-          (map-set staker-info 
-            {staker: sender}
+          (map-set user-records 
+            {user: user}
             {
-              balance: (- current-balance amount),
-              reward-debt: (/ (* (- current-balance amount) (var-get reward-per-token-stored)) PRECISION)
+              locked-amount: (- current-locked amount),
+              yield-debt: (/ (* (- current-locked amount) (var-get cumulative-yield-per-share)) SCALE-FACTOR)
             }
           )
-          (var-set total-supply (- (var-get total-supply) amount))
-          (as-contract (contract-call? lp-token transfer amount tx-sender sender none))
+          (var-set locked-tokens (- (var-get locked-tokens) amount))
+          (as-contract (contract-call? pool-token transfer amount tx-sender user none))
         )
       error (err error)
     )
   )
 )
 
-;; Claim rewards
-(define-public (claim-reward (token <ft-trait>))
+;; Claim yield
+(define-public (claim-yield (yield-token <fungible-token>))
   (let (
-    (sender tx-sender)
-    (staker-data (unwrap! (map-get? staker-info {staker: sender}) ERR-INSUFFICIENT-BALANCE))
-    (balance (get balance staker-data))
-    (reward-debt (get reward-debt staker-data))
+    (user tx-sender)
+    (user-data (unwrap! (map-get? user-records {user: user}) ERR-LOW-BALANCE))
+    (locked-amount (get locked-amount user-data))
+    (yield-debt (get yield-debt user-data))
   )
-    (asserts! (is-eq (contract-of token) (unwrap! (var-get token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-TOKEN-CONTRACT)
-    (match (update-reward)
+    (asserts! (is-eq (contract-of yield-token) (unwrap! (var-get yield-token-contract) ERR-NOT-READY)) ERR-WRONG-YIELD-TOKEN)
+    (match (recalculate-yield)
       success
         (let (
-          (reward-calculation (- (* balance (var-get reward-per-token-stored)) (* reward-debt PRECISION)))
-          (reward (/ reward-calculation PRECISION))
+          (yield-calc (- (* locked-amount (var-get cumulative-yield-per-share)) (* yield-debt SCALE-FACTOR)))
+          (yield-amount (/ yield-calc SCALE-FACTOR))
         )
-          (asserts! (>= reward u0) ERR-ARITHMETIC-UNDERFLOW)
-          (map-set staker-info 
-            {staker: sender}
+          (asserts! (>= yield-amount u0) ERR-CALCULATION-UNDERFLOW)
+          (map-set user-records 
+            {user: user}
             {
-              balance: balance,
-              reward-debt: (/ (* balance (var-get reward-per-token-stored)) PRECISION)
+              locked-amount: locked-amount,
+              yield-debt: (/ (* locked-amount (var-get cumulative-yield-per-share)) SCALE-FACTOR)
             }
           )
-          (as-contract (contract-call? token transfer reward tx-sender sender none))
+          (as-contract (contract-call? yield-token transfer yield-amount tx-sender user none))
         )
       error (err error)
     )
   )
 )
 
-;; Set new reward rate (only owner)
-(define-public (set-reward-rate (new-rate uint))
+;; Set new emission rate (only manager)
+(define-public (adjust-emission-rate (new-rate uint))
   (begin
-    (asserts! (is-owner) ERR-NOT-AUTHORIZED)
-    (asserts! (and (>= new-rate MIN-RATE) (<= new-rate MAX-RATE)) ERR-INVALID-RATE)
-    (match (update-reward)
+    (asserts! (is-manager) ERR-FORBIDDEN)
+    (asserts! (and (>= new-rate LOWEST-RATE) (<= new-rate HIGHEST-RATE)) ERR-RATE-OUT-OF-BOUNDS)
+    (match (recalculate-yield)
       success
         (begin
-          (var-set reward-rate new-rate)
+          (var-set emission-rate new-rate)
           (ok true)
         )
       error (err error)
@@ -194,17 +194,17 @@
   )
 )
 
-;; Get current reward rate
-(define-read-only (get-reward-rate)
-  (ok (var-get reward-rate))
+;; Get current emission rate
+(define-read-only (get-emission-rate)
+  (ok (var-get emission-rate))
 )
 
-;; Get total staked amount
-(define-read-only (get-total-supply)
-  (ok (var-get total-supply))
+;; Get total locked amount
+(define-read-only (get-total-locked)
+  (ok (var-get locked-tokens))
 )
 
-;; Get staker info
-(define-read-only (get-staker-info (staker principal))
-  (ok (map-get? staker-info {staker: staker}))
+;; Get user info
+(define-read-only (get-user-info (user principal))
+  (ok (map-get? user-records {user: user}))
 )

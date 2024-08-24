@@ -1,15 +1,15 @@
 ;; Smart contract on STX dividend-distribution
 
 ;; Constants
-(define-constant contract-admin tx-sender)
-(define-constant err-admin-only (err u100))
-(define-constant err-no-payouts (err u101))
-(define-constant err-transfer-failed (err u102))
-(define-constant err-invalid-sum (err u103))
-(define-constant err-update-holdings-failed (err u104))
-(define-constant err-payout-period-not-reached (err u105))
-(define-constant err-no-unclaimed-payouts (err u106))
-(define-constant PAYOUT_INTERVAL u10000)
+(define-constant CONTRACT-ADMIN tx-sender)
+(define-constant ERR-ADMIN-ONLY (err u100))
+(define-constant ERR-NO-PAYOUTS (err u101))
+(define-constant ERR-TRANSFER-FAILED (err u102))
+(define-constant ERR-INVALID-SUM (err u103))
+(define-constant ERR-UPDATE-HOLDINGS-FAILED (err u104))
+(define-constant ERR-PAYOUT-PERIOD-NOT-REACHED (err u105))
+(define-constant ERR-NO-UNCLAIMED-PAYOUTS (err u106))
+(define-constant PAYOUT-INTERVAL u10000)
 
 ;; Data variables
 (define-data-var total-payouts uint u0)
@@ -59,8 +59,8 @@
 ;; Public functions
 (define-public (add-payouts (sum uint))
   (begin
-    (asserts! (is-eq tx-sender contract-admin) err-admin-only)
-    (asserts! (> sum u0) err-invalid-sum)
+    (asserts! (is-eq tx-sender CONTRACT-ADMIN) ERR-ADMIN-ONLY)
+    (asserts! (> sum u0) ERR-INVALID-SUM)
     (try! (stx-transfer? sum tx-sender (as-contract tx-sender)))
     (update-payouts-per-token sum)
     (var-set last-payout-block block-height)
@@ -81,10 +81,10 @@
 
 (define-public (claim-payouts)
   (let (
-    (holdings (unwrap! (update-holdings) err-update-holdings-failed))
+    (holdings (unwrap! (update-holdings) ERR-UPDATE-HOLDINGS-FAILED))
     (claimable (get-claimable-sum tx-sender))
   )
-    (asserts! (> claimable u0) err-no-payouts)
+    (asserts! (> claimable u0) ERR-NO-PAYOUTS)
     (map-set user-distributed-payouts tx-sender 
              (+ (default-to u0 (map-get? user-distributed-payouts tx-sender)) claimable))
     (var-set distributed-payouts (+ (var-get distributed-payouts) claimable))
@@ -94,7 +94,7 @@
 
 (define-public (update-token-supply)
   (begin
-    (asserts! (is-eq tx-sender contract-admin) err-admin-only)
+    (asserts! (is-eq tx-sender CONTRACT-ADMIN) ERR-ADMIN-ONLY)
     (var-set total-token-supply (stx-get-balance (as-contract tx-sender)))
     (ok (var-get total-token-supply))
   )
@@ -106,11 +106,11 @@
     (last-payout (var-get last-payout-block))
     (unclaimed-sum (- (var-get total-payouts) (var-get distributed-payouts)))
   )
-    (asserts! (is-eq tx-sender contract-admin) err-admin-only)
-    (asserts! (> (- current-block last-payout) PAYOUT_INTERVAL) err-payout-period-not-reached)
-    (asserts! (> unclaimed-sum u0) err-no-unclaimed-payouts)
+    (asserts! (is-eq tx-sender CONTRACT-ADMIN) ERR-ADMIN-ONLY)
+    (asserts! (> (- current-block last-payout) PAYOUT-INTERVAL) ERR-PAYOUT-PERIOD-NOT-REACHED)
+    (asserts! (> unclaimed-sum u0) ERR-NO-UNCLAIMED-PAYOUTS)
     (var-set total-payouts (- (var-get total-payouts) unclaimed-sum))
-    (as-contract (stx-transfer? unclaimed-sum tx-sender contract-admin))
+    (as-contract (stx-transfer? unclaimed-sum tx-sender CONTRACT-ADMIN))
   )
 )
 

@@ -1,120 +1,120 @@
 ;; Smart contract managing Liquidity Mining.
 
 ;; Token trait definition
-(use-trait ft-trait .sip-010-trait.sip-010-trait)
+(use-trait token-trait .sip-010-trait.sip-010-trait)
 
 ;; Define the contract
-(define-data-var token-address (optional principal) none)
-(define-data-var lp-token-address (optional principal) none)
-(define-data-var reward-rate uint u100)
-(define-data-var last-update-time uint u0)
-(define-data-var reward-per-token-stored uint u0)
-(define-data-var total-supply uint u0)
-(define-data-var owner (optional principal) none)
-(define-constant MIN-RATE u1)
-(define-constant MAX-RATE u1000)
+(define-data-var reward-token-principal (optional principal) none)
+(define-data-var stake-token-principal (optional principal) none)
+(define-data-var distribution-rate uint u100)
+(define-data-var previous-update-time uint u0)
+(define-data-var accumulated-reward-per-token uint u0)
+(define-data-var total-staked uint u0)
+(define-data-var admin (optional principal) none)
+(define-constant MINIMUM-RATE u1)
+(define-constant MAXIMUM-RATE u1000)
 
 ;; Precision constant
-(define-constant PRECISION u1000000)
+(define-constant DECIMAL-PRECISION u1000000)
 
 ;; Error constants
-(define-constant ERR-NOT-AUTHORIZED (err u100))
-(define-constant ERR-NOT-INITIALIZED (err u101))
-(define-constant ERR-ALREADY-INITIALIZED (err u102))
-(define-constant ERR-INSUFFICIENT-BALANCE (err u103))
-(define-constant ERR-INVALID-TOKEN-CONTRACT (err u106))
-(define-constant ERR-INVALID-LP-TOKEN-CONTRACT (err u107))
-(define-constant ERR-INVALID-AMOUNT (err u104))
-(define-constant ERR-INVALID-RATE (err u105))
-(define-constant ERR-UPDATE-FAILED (err u109))
-(define-constant ERR-TRANSFER-FAILED (err u110))
-(define-constant ERR-ARITHMETIC-OVERFLOW (err u111))
-(define-constant ERR-ARITHMETIC-UNDERFLOW (err u112))
+(define-constant ERR-UNAUTHORIZED (err u100))
+(define-constant ERR-UNINITIALIZED (err u101))
+(define-constant ERR-ALREADY-SETUP (err u102))
+(define-constant ERR-INSUFFICIENT-FUNDS (err u103))
+(define-constant ERR-INVALID-REWARD-TOKEN (err u106))
+(define-constant ERR-INVALID-STAKE-TOKEN (err u107))
+(define-constant ERR-INVALID-QUANTITY (err u104))
+(define-constant ERR-INVALID-DISTRIBUTION-RATE (err u105))
+(define-constant ERR-UPDATE-ERROR (err u109))
+(define-constant ERR-TRANSFER-ERROR (err u110))
+(define-constant ERR-MATH-OVERFLOW (err u111))
+(define-constant ERR-MATH-UNDERFLOW (err u112))
 
-(define-map staker-info 
-  {staker: principal}
-  {balance: uint, reward-debt: uint}
+(define-map participant-data 
+  {participant: principal}
+  {stake-amount: uint, reward-debt: uint}
 )
 
 ;; Initialize the contract
-(define-public (initialize (token <ft-trait>) (lp-token <ft-trait>))
+(define-public (setup (reward-token <token-trait>) (stake-token <token-trait>))
   (let 
     (
-      (caller tx-sender)
-      (token-principal (contract-of token))
-      (lp-token-principal (contract-of lp-token))
+      (initiator tx-sender)
+      (reward-token-addr (contract-of reward-token))
+      (stake-token-addr (contract-of stake-token))
     )
-    (asserts! (is-none (var-get owner)) ERR-ALREADY-INITIALIZED)
-    ;; Check if the token implements the necessary functions
-    (asserts! (is-ok (contract-call? token get-name)) ERR-INVALID-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? token get-symbol)) ERR-INVALID-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? token get-decimals)) ERR-INVALID-TOKEN-CONTRACT)
-    ;; Check if the lp-token implements the necessary functions
-    (asserts! (is-ok (contract-call? lp-token get-name)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? lp-token get-symbol)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (asserts! (is-ok (contract-call? lp-token get-decimals)) ERR-INVALID-LP-TOKEN-CONTRACT)
+    (asserts! (is-none (var-get admin)) ERR-ALREADY-SETUP)
+    ;; Check if the reward-token implements the necessary functions
+    (asserts! (is-ok (contract-call? reward-token get-name)) ERR-INVALID-REWARD-TOKEN)
+    (asserts! (is-ok (contract-call? reward-token get-symbol)) ERR-INVALID-REWARD-TOKEN)
+    (asserts! (is-ok (contract-call? reward-token get-decimals)) ERR-INVALID-REWARD-TOKEN)
+    ;; Check if the stake-token implements the necessary functions
+    (asserts! (is-ok (contract-call? stake-token get-name)) ERR-INVALID-STAKE-TOKEN)
+    (asserts! (is-ok (contract-call? stake-token get-symbol)) ERR-INVALID-STAKE-TOKEN)
+    (asserts! (is-ok (contract-call? stake-token get-decimals)) ERR-INVALID-STAKE-TOKEN)
     ;; If all checks pass, set the contract variables
-    (var-set token-address (some token-principal))
-    (var-set lp-token-address (some lp-token-principal))
-    (var-set last-update-time block-height)
-    (var-set owner (some caller))
+    (var-set reward-token-principal (some reward-token-addr))
+    (var-set stake-token-principal (some stake-token-addr))
+    (var-set previous-update-time block-height)
+    (var-set admin (some initiator))
     (ok true)
   )
 )
 
-;; is-owner function
-(define-private (is-owner)
-  (match (var-get owner)
-    current-owner (is-eq tx-sender current-owner)
+;; is-admin function
+(define-private (is-admin)
+  (match (var-get admin)
+    current-admin (is-eq tx-sender current-admin)
     false
   )
 )
 
 ;; Update reward variables
-(define-private (update-reward)
+(define-private (update-rewards)
   (let (
     (current-time block-height)
-    (time-elapsed (- current-time (var-get last-update-time)))
-    (rewards (/ (* time-elapsed (var-get reward-rate)) PRECISION))
-    (current-supply (var-get total-supply))
+    (elapsed-time (- current-time (var-get previous-update-time)))
+    (distributed-rewards (/ (* elapsed-time (var-get distribution-rate)) DECIMAL-PRECISION))
+    (current-total-staked (var-get total-staked))
   )
-    (if (> current-supply u0)
-      (let ((new-reward-per-token (+ (var-get reward-per-token-stored) 
-                                     (/ (* rewards PRECISION) current-supply))))
-        (if (< new-reward-per-token (var-get reward-per-token-stored))
-          ERR-ARITHMETIC-OVERFLOW
+    (if (> current-total-staked u0)
+      (let ((new-accumulated-reward (+ (var-get accumulated-reward-per-token) 
+                                     (/ (* distributed-rewards DECIMAL-PRECISION) current-total-staked))))
+        (if (< new-accumulated-reward (var-get accumulated-reward-per-token))
+          ERR-MATH-OVERFLOW
           (begin
-            (var-set reward-per-token-stored new-reward-per-token)
-            (var-set last-update-time current-time)
+            (var-set accumulated-reward-per-token new-accumulated-reward)
+            (var-set previous-update-time current-time)
             (ok true))))
       (begin
-        (var-set last-update-time current-time)
+        (var-set previous-update-time current-time)
         (ok true))
     )
   )
 )
 
 ;; Stake LP tokens
-(define-public (stake (amount uint) (lp-token <ft-trait>))
+(define-public (deposit (quantity uint) (stake-token <token-trait>))
   (let (
-    (sender tx-sender)
-    (staker-data (default-to {balance: u0, reward-debt: u0} (map-get? staker-info {staker: sender})))
-    (current-balance (get balance staker-data))
+    (depositor tx-sender)
+    (participant-info (default-to {stake-amount: u0, reward-debt: u0} (map-get? participant-data {participant: depositor})))
+    (current-stake (get stake-amount participant-info))
   )
-    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
-    (asserts! (is-eq (contract-of lp-token) (unwrap! (var-get lp-token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (match (update-reward)
+    (asserts! (> quantity u0) ERR-INVALID-QUANTITY)
+    (asserts! (is-eq (contract-of stake-token) (unwrap! (var-get stake-token-principal) ERR-UNINITIALIZED)) ERR-INVALID-STAKE-TOKEN)
+    (match (update-rewards)
       success
         (begin
-          (map-set staker-info 
-            {staker: sender}
+          (map-set participant-data 
+            {participant: depositor}
             {
-              balance: (+ current-balance amount),
-              reward-debt: (/ (* (+ current-balance amount) (var-get reward-per-token-stored)) PRECISION)
+              stake-amount: (+ current-stake quantity),
+              reward-debt: (/ (* (+ current-stake quantity) (var-get accumulated-reward-per-token)) DECIMAL-PRECISION)
             }
           )
-          (var-set total-supply (+ (var-get total-supply) amount))
-          (as-contract (contract-call? lp-token transfer amount sender (as-contract tx-sender) none))
+          (var-set total-staked (+ (var-get total-staked) quantity))
+          (as-contract (contract-call? stake-token transfer quantity depositor (as-contract tx-sender) none))
         )
       error (err error)
     )
@@ -122,26 +122,26 @@
 )
 
 ;; Withdraw LP tokens
-(define-public (withdraw (amount uint) (lp-token <ft-trait>))
+(define-public (unstake (quantity uint) (stake-token <token-trait>))
   (let (
-    (sender tx-sender)
-    (staker-data (unwrap! (map-get? staker-info {staker: sender}) ERR-INSUFFICIENT-BALANCE))
-    (current-balance (get balance staker-data))
+    (withdrawer tx-sender)
+    (participant-info (unwrap! (map-get? participant-data {participant: withdrawer}) ERR-INSUFFICIENT-FUNDS))
+    (current-stake (get stake-amount participant-info))
   )
-    (asserts! (>= current-balance amount) ERR-INSUFFICIENT-BALANCE)
-    (asserts! (is-eq (contract-of lp-token) (unwrap! (var-get lp-token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-LP-TOKEN-CONTRACT)
-    (match (update-reward)
+    (asserts! (>= current-stake quantity) ERR-INSUFFICIENT-FUNDS)
+    (asserts! (is-eq (contract-of stake-token) (unwrap! (var-get stake-token-principal) ERR-UNINITIALIZED)) ERR-INVALID-STAKE-TOKEN)
+    (match (update-rewards)
       success
         (begin
-          (map-set staker-info 
-            {staker: sender}
+          (map-set participant-data 
+            {participant: withdrawer}
             {
-              balance: (- current-balance amount),
-              reward-debt: (/ (* (- current-balance amount) (var-get reward-per-token-stored)) PRECISION)
+              stake-amount: (- current-stake quantity),
+              reward-debt: (/ (* (- current-stake quantity) (var-get accumulated-reward-per-token)) DECIMAL-PRECISION)
             }
           )
-          (var-set total-supply (- (var-get total-supply) amount))
-          (as-contract (contract-call? lp-token transfer amount tx-sender sender none))
+          (var-set total-staked (- (var-get total-staked) quantity))
+          (as-contract (contract-call? stake-token transfer quantity tx-sender withdrawer none))
         )
       error (err error)
     )
@@ -149,44 +149,44 @@
 )
 
 ;; Claim rewards
-(define-public (claim-reward (token <ft-trait>))
+(define-public (harvest-rewards (reward-token <token-trait>))
   (let (
-    (sender tx-sender)
-    (staker-data (unwrap! (map-get? staker-info {staker: sender}) ERR-INSUFFICIENT-BALANCE))
-    (balance (get balance staker-data))
-    (reward-debt (get reward-debt staker-data))
+    (harvester tx-sender)
+    (participant-info (unwrap! (map-get? participant-data {participant: harvester}) ERR-INSUFFICIENT-FUNDS))
+    (stake-amount (get stake-amount participant-info))
+    (reward-debt (get reward-debt participant-info))
   )
-    (asserts! (is-eq (contract-of token) (unwrap! (var-get token-address) ERR-NOT-INITIALIZED)) ERR-INVALID-TOKEN-CONTRACT)
-    (match (update-reward)
+    (asserts! (is-eq (contract-of reward-token) (unwrap! (var-get reward-token-principal) ERR-UNINITIALIZED)) ERR-INVALID-REWARD-TOKEN)
+    (match (update-rewards)
       success
         (let (
-          (reward-calculation (- (* balance (var-get reward-per-token-stored)) (* reward-debt PRECISION)))
-          (reward (/ reward-calculation PRECISION))
+          (reward-calculation (- (* stake-amount (var-get accumulated-reward-per-token)) (* reward-debt DECIMAL-PRECISION)))
+          (reward-amount (/ reward-calculation DECIMAL-PRECISION))
         )
-          (asserts! (>= reward u0) ERR-ARITHMETIC-UNDERFLOW)
-          (map-set staker-info 
-            {staker: sender}
+          (asserts! (>= reward-amount u0) ERR-MATH-UNDERFLOW)
+          (map-set participant-data 
+            {participant: harvester}
             {
-              balance: balance,
-              reward-debt: (/ (* balance (var-get reward-per-token-stored)) PRECISION)
+              stake-amount: stake-amount,
+              reward-debt: (/ (* stake-amount (var-get accumulated-reward-per-token)) DECIMAL-PRECISION)
             }
           )
-          (as-contract (contract-call? token transfer reward tx-sender sender none))
+          (as-contract (contract-call? reward-token transfer reward-amount tx-sender harvester none))
         )
       error (err error)
     )
   )
 )
 
-;; Set new reward rate (only owner)
-(define-public (set-reward-rate (new-rate uint))
+;; Set new reward rate (only admin)
+(define-public (update-distribution-rate (new-rate uint))
   (begin
-    (asserts! (is-owner) ERR-NOT-AUTHORIZED)
-    (asserts! (and (>= new-rate MIN-RATE) (<= new-rate MAX-RATE)) ERR-INVALID-RATE)
-    (match (update-reward)
+    (asserts! (is-admin) ERR-UNAUTHORIZED)
+    (asserts! (and (>= new-rate MINIMUM-RATE) (<= new-rate MAXIMUM-RATE)) ERR-INVALID-DISTRIBUTION-RATE)
+    (match (update-rewards)
       success
         (begin
-          (var-set reward-rate new-rate)
+          (var-set distribution-rate new-rate)
           (ok true)
         )
       error (err error)
@@ -195,16 +195,16 @@
 )
 
 ;; Get current reward rate
-(define-read-only (get-reward-rate)
-  (ok (var-get reward-rate))
+(define-read-only (get-distribution-rate)
+  (ok (var-get distribution-rate))
 )
 
 ;; Get total staked amount
-(define-read-only (get-total-supply)
-  (ok (var-get total-supply))
+(define-read-only (get-total-staked)
+  (ok (var-get total-staked))
 )
 
-;; Get staker info
-(define-read-only (get-staker-info (staker principal))
-  (ok (map-get? staker-info {staker: staker}))
+;; Get participant info
+(define-read-only (get-participant-info (participant principal))
+  (ok (map-get? participant-data {participant: participant}))
 )

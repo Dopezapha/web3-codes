@@ -47,7 +47,7 @@ export function AdminActions() {
 
   if (!isAdmin) return null;
   if (loading) return <p>Processing admin action...</p>;
-  if (error) return <p>Error: {error}</p>;
+  if (error) return <p className="error-message">Error: {error}</p>;
 
   return (
     <div>
@@ -59,8 +59,8 @@ export function AdminActions() {
         placeholder="Payout Amount"
       />
       <button onClick={handleAddPayouts}>Add Payouts</button>
-      <button onClick={handleUpdateTokenSupply}>Update Token Supply</button>
-      <button onClick={handleWithdrawUnclaimed}>Withdraw Unclaimed Payouts</button>
+      <button className="secondary" onClick={handleUpdateTokenSupply}>Update Token Supply</button>
+      <button className="secondary" onClick={handleWithdrawUnclaimed}>Withdraw Unclaimed Payouts</button>
     </div>
   );
 }

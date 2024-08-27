@@ -46,14 +46,17 @@ export function UserActions() {
   };
 
   if (loading) return <p>Processing...</p>;
-  if (error) return <p>Error: {error}</p>;
+  if (error) return <p className="error-message">Error: {error}</p>;
 
   return (
     <div>
       <h2>User Actions</h2>
       <button onClick={handleUpdateHoldings}>Update Holdings</button>
       <button onClick={handleClaimPayouts}>Claim Payouts</button>
-      <p>Claimable Amount: {claimableAmount} STX</p>
+      <div className="data-display">
+        <span className="data-label">Claimable Amount:</span>
+        <span className="data-value"> {claimableAmount} STX</span>
+      </div>
     </div>
   );
 }

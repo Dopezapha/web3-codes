@@ -11,12 +11,20 @@ function App() {
   return (
     <div className="App">
       <h1>STX Dividend Distribution</h1>
-      <Connect />
+      <div className="card">
+        <Connect />
+      </div>
       {userAddress && (
         <>
-          <ContractInfo />
-          <UserActions />
-          <AdminActions />
+          <div className="card">
+            <ContractInfo />
+          </div>
+          <div className="card">
+            <UserActions />
+          </div>
+          <div className="card">
+            <AdminActions />
+          </div>
         </>
       )}
     </div>

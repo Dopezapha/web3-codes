@@ -20,7 +20,7 @@ export function Connect() {
         <button onClick={handleConnect}>Connect Wallet</button>
       ) : (
         <div>
-          <p>Connected: {userAddress}</p>
+          <p className="info-text">Connected: {userAddress}</p>
           <button onClick={handleSignOut}>Sign Out</button>
         </div>
       )}

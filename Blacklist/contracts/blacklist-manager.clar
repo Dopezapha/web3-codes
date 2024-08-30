@@ -2,70 +2,76 @@
 ;; This contract manages a blacklist for STX token transfers
 
 ;; Error codes
-(define-constant ERR-NOT-AUTHORIZED (err u100))
-(define-constant ERR-ALREADY-BLACKLISTED (err u101))
-(define-constant ERR-NOT-BLACKLISTED (err u102))
-(define-constant ERR-BLACKLISTED (err u103))
-(define-constant ERR-TRANSFER-FAILED (err u104))
+(define-constant ERROR-UNAUTHORIZED (err u100))
+(define-constant ERROR-ALREADY-LISTED (err u101))
+(define-constant ERROR-NOT-LISTED (err u102))
+(define-constant ERROR-RESTRICTED (err u103))
+(define-constant ERROR-TRANSFER-UNSUCCESSFUL (err u104))
+(define-constant ERROR-INVALID-AMOUNT (err u105))
 
 ;; Define data variables
-(define-data-var contract-owner principal tx-sender)
+(define-data-var admin principal tx-sender)
 
 ;; Define data maps
-(define-map blacklist principal bool)
+(define-map restricted-list principal bool)
 
-;; Check if the caller is the contract owner
-(define-private (is-contract-owner)
-  (is-eq tx-sender (var-get contract-owner)))
+;; Check if the caller is the contract admin
+(define-private (is-admin)
+  (is-eq tx-sender (var-get admin)))
 
-;; Add address to blacklist
-(define-public (add-to-blacklist (address principal))
+;; Add address to restricted list
+(define-public (restrict-address (target principal))
   (begin
-    (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
-    (asserts! (is-none (map-get? blacklist address)) ERR-ALREADY-BLACKLISTED)
-    (ok (map-set blacklist address true))))
+    (asserts! (is-admin) ERROR-UNAUTHORIZED)
+    (asserts! (is-none (map-get? restricted-list target)) ERROR-ALREADY-LISTED)
+    (ok (map-set restricted-list target true))))
 
-;; Remove address from blacklist
-(define-public (remove-from-blacklist (address principal))
+;; Remove address from restricted list
+(define-public (unrestrict-address (target principal))
   (begin
-    (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
-    (asserts! (is-some (map-get? blacklist address)) ERR-NOT-BLACKLISTED)
-    (ok (map-delete blacklist address))))
+    (asserts! (is-admin) ERROR-UNAUTHORIZED)
+    (asserts! (is-some (map-get? restricted-list target)) ERROR-NOT-LISTED)
+    (ok (map-delete restricted-list target))))
 
-;; Check if address is blacklisted
-(define-read-only (is-blacklisted (address principal))
-  (default-to false (map-get? blacklist address)))
+;; Check if address is restricted
+(define-read-only (is-restricted (target principal))
+  (default-to false (map-get? restricted-list target)))
 
 ;; Transfer STX tokens
-(define-public (transfer-stx (amount uint) (sender principal) (recipient principal))
+(define-public (send-stx (amount uint) (from principal) (to principal))
   (begin
-    (asserts! (is-eq tx-sender sender) ERR-NOT-AUTHORIZED)
-    (asserts! (not (is-blacklisted sender)) ERR-BLACKLISTED)
-    (asserts! (not (is-blacklisted recipient)) ERR-BLACKLISTED)
-    (match (stx-transfer? amount sender recipient)
+    (asserts! (is-eq tx-sender from) ERROR-UNAUTHORIZED)
+    (asserts! (not (is-restricted from)) ERROR-RESTRICTED)
+    (asserts! (not (is-restricted to)) ERROR-RESTRICTED)
+    (asserts! (> amount u0) ERROR-INVALID-AMOUNT)
+    (asserts! (<= amount (stx-get-balance from)) ERROR-INVALID-AMOUNT)
+    (match (stx-transfer? amount from to)
       success (ok success)
-      error (err ERR-TRANSFER-FAILED))))
+      error ERROR-TRANSFER-UNSUCCESSFUL)))
 
 ;; Get STX balance of an address
-(define-read-only (get-stx-balance (address principal))
-  (stx-get-balance address))
+(define-read-only (check-stx-balance (target principal))
+  (stx-get-balance target))
 
-;; Controlled STX transfer (can only be called by the contract owner)
-(define-public (controlled-transfer (amount uint) (sender principal) (recipient principal))
+;; Controlled STX transfer (can only be called by the contract admin)
+(define-public (admin-transfer (amount uint) (from principal) (to principal))
   (begin
-    (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
-    (asserts! (not (is-blacklisted sender)) ERR-BLACKLISTED)
-    (asserts! (not (is-blacklisted recipient)) ERR-BLACKLISTED)
-    (match (as-contract (stx-transfer? amount sender recipient))
+    (asserts! (is-admin) ERROR-UNAUTHORIZED)
+    (asserts! (not (is-restricted from)) ERROR-RESTRICTED)
+    (asserts! (not (is-restricted to)) ERROR-RESTRICTED)
+    (asserts! (> amount u0) ERROR-INVALID-AMOUNT)
+    (asserts! (<= amount (stx-get-balance from)) ERROR-INVALID-AMOUNT)
+    (match (as-contract (stx-transfer? amount from to))
       success (ok success)
-      error (err ERR-TRANSFER-FAILED))))
+      error ERROR-TRANSFER-UNSUCCESSFUL)))
 
-;; Change contract owner
-(define-public (set-contract-owner (new-owner principal))
+;; Change contract admin
+(define-public (update-admin (new-admin principal))
   (begin
-    (asserts! (is-contract-owner) ERR-NOT-AUTHORIZED)
-    (ok (var-set contract-owner new-owner))))
+    (asserts! (is-admin) ERROR-UNAUTHORIZED)
+    (asserts! (not (is-restricted new-admin)) ERROR-RESTRICTED)
+    (ok (var-set admin new-admin))))
 
-;; Get contract owner
-(define-read-only (get-contract-owner)
-  (var-get contract-owner))
+;; Get contract admin
+(define-read-only (get-admin)
+  (var-get admin))

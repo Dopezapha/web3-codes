@@ -1,57 +1,59 @@
 ### STX-Blacklist-Manager Smart Contract
 
-### ABOUT
-The STX-Blacklist-Manager is a Clarity smart contract designed for the Stacks blockchain. It provides a mechanism to manage a blacklist for STX token transfers. This contract allows for controlled transfers of STX tokens while respecting a blacklist of addresses.
+## ABOUT
+The STX-Blacklist-Manager is a Clarity smart contract designed for the Stacks blockchain. It provides a mechanism to manage a restricted list for STX token transfers. This contract allows for controlled transfers of STX tokens while respecting a list of restricted addresses.
 
 ## Features
 
-1. Blacklist management (add/remove addresses)
-2. Blacklist-aware STX transfers
-3. Controlled transfers by contract owner
-4. Contract ownership management
-5. Balance checking
+Restricted address management (restrict/unrestrict addresses)
+Restriction-aware STX transfers
+Controlled transfers by admin
+Admin management
+STX balance checking
 
 ### Contract Functions
-## Blacklist Management
+## Restricted Address Management
 
-add-to-blacklist (address principal) -> (response bool uint)
+restrict-address (target principal) -> (response bool uint)
 
-Adds an address to the blacklist.
-Only callable by the contract owner.
-
-
-remove-from-blacklist (address principal) -> (response bool uint)
-
-Removes an address from the blacklist.
-Only callable by the contract owner.
+Adds an address to the restricted list.
+Only callable by the admin.
 
 
-is-blacklisted (address principal) -> bool
+unrestrict-address (target principal) -> (response bool uint)
 
-Checks if an address is blacklisted.
+Removes an address from the restricted list.
+Only callable by the admin.
+
+
+is-restricted (target principal) -> bool
+
+Checks if an address is restricted.
 Read-only function, callable by anyone.
 
 
 
 ## STX Transfers
 
-transfer-stx (amount uint) (sender principal) (recipient principal) -> (response bool uint)
+send-stx (amount uint) (from principal) (to principal) -> (response bool uint)
 
-Transfers STX tokens from sender to recipient.
-Checks if neither sender nor recipient is blacklisted.
+Transfers STX from sender to recipient.
+Checks if neither sender nor recipient is restricted.
 Can only be called by the sender.
+Verifies that the amount is valid and the sender has sufficient balance.
 
 
-controlled-transfer (amount uint) (sender principal) (recipient principal) -> (response bool uint)
+admin-transfer (amount uint) (from principal) (to principal) -> (response bool uint)
 
-Allows the contract owner to transfer STX between any two non-blacklisted addresses.
-Only callable by the contract owner.
+Allows the admin to transfer STX between any two non-restricted addresses.
+Only callable by the admin.
+Verifies that the amount is valid and the sender has sufficient balance.
 
 
 
 ## Balance Checking
 
-get-stx-balance (address principal) -> uint
+check-stx-balance (target principal) -> uint
 
 Returns the STX balance of the given address.
 Read-only function, callable by anyone.
@@ -60,44 +62,48 @@ Read-only function, callable by anyone.
 
 ## Contract Management
 
-set-contract-owner (new-owner principal) -> (response bool uint)
+update-admin (new-admin principal) -> (response bool uint)
 
-Changes the contract owner to the provided address.
-Only callable by the current contract owner.
+Changes the admin to the provided address.
+Only callable by the current admin.
+Ensures the new admin is not on the restricted list.
 
 
-get-contract-owner () -> principal
+get-admin () -> principal
 
-Returns the current contract owner's address.
+Returns the current admin's address.
 Read-only function, callable by anyone.
 
 
 
 ## Error Codes
 
-ERR-NOT-AUTHORIZED (u100): Caller is not authorized to perform this action.
-ERR-ALREADY-BLACKLISTED (u101): Address is already blacklisted.
-ERR-NOT-BLACKLISTED (u102): Address is not blacklisted.
-ERR-BLACKLISTED (u103): Operation involves a blacklisted address.
-ERR-TRANSFER-FAILED (u104): STX transfer failed.
+ERROR-UNAUTHORIZED (u100): Caller is not authorized to perform this action.
+ERROR-ALREADY-LISTED (u101): Address is already restricted.
+ERROR-NOT-LISTED (u102): Address is not restricted.
+ERROR-RESTRICTED (u103): Operation involves a restricted address.
+ERROR-TRANSFER-UNSUCCESSFUL (u104): STX transfer failed.
+ERROR-INVALID-AMOUNT (u105): Invalid transfer amount.
 
 ## Setup and Deployment
 
 Ensure you have the Stacks CLI installed and configured.
 Clone this repository or copy the contract code.
-Deploy the contract to the Stacks blockchain:
+Deploy the contract to the Stacks blockchain.
 Note the contract address after successful deployment.
 
 ## Security Considerations
 
-This contract does not prevent direct STX transfers outside of its scope.
-Ensure that only trusted addresses are given contract owner privileges.
-Regularly audit the blacklist to maintain its integrity.
+This contract includes checks for valid transfer amounts and sufficient balances.
+The contract prevents setting a restricted address as the new admin.
+Ensure that only trusted addresses are given admin privileges.
+Regularly audit the restricted address list to maintain its integrity.
 
 ## Limitations
 
 The contract relies on users and integrating systems to use its functions for transfers.
-It does not automatically sync with any external blacklists.
+It does not automatically sync with any external restricted lists.
+
 
 ## Contributing
 

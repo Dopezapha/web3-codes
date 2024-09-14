@@ -1,0 +1,171 @@
+:root {
+    --primary-color: #1a5f7a;
+    --secondary-color: #159895;
+    --accent-color: #f2921d;
+    --background-color: #f6f8fa;
+    --card-background: #ffffff;
+    --text-color: #2c3e50;
+    --light-text-color: #ffffff;
+    --border-color: #e1e4e8;
+    --success-color: #27ae60;
+    --error-color: #e74c3c;
+  }
+  
+  body {
+    font-family: 'Arial', sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+  }
+  
+  .App {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  h1, h2, h3 {
+    color: var(--primary-color);
+  }
+  
+  .card {
+    background-color: var(--card-background);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  button {
+    background-color: var(--primary-color);
+    color: var(--light-text-color);
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  
+  button:hover {
+    background-color: var(--secondary-color);
+  }
+  
+  button.secondary {
+    background-color: var(--secondary-color);
+  }
+  
+  button.secondary:hover {
+    background-color: #1aaea9;
+  }
+  
+  input[type="number"] {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+  }
+  
+  .info-text {
+    color: var(--accent-color);
+    font-weight: bold;
+  }
+  
+  .success-message {
+    color: var(--success-color);
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 4px;
+    padding: 10px;
+    margin: 10px 0;
+  }
+  
+  .error-message {
+    color: var(--error-color);
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    padding: 10px;
+    margin: 10px 0;
+  }
+  
+  .data-label {
+    font-weight: bold;
+    color: var(--primary-color);
+  }
+  
+  .data-value {
+    color: var(--accent-color);
+  }
+  
+  /* Additional styles for better spacing and layout */
+  .card > div {
+    margin-bottom: 15px;
+  }
+  
+  button + button {
+    margin-left: 10px;
+  }
+  
+  input[type="number"] {
+    margin-bottom: 15px;
+  }
+  
+  /* Responsive design */
+  @media (max-width: 768px) {
+    .App {
+      padding: 10px;
+    }
+  
+    .card {
+      padding: 15px;
+    }
+  
+    button {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+  
+    button + button {
+      margin-left: 0;
+    }
+  }
+  
+  /* Animations */
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  .card {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+  
+  /* Hover effects */
+  .data-display:hover {
+    background-color: var(--background-color);
+    transition: background-color 0.3s ease;
+  }
+  
+  /* Focus styles for accessibility */
+  button:focus, input:focus {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+  }
+  
+  /* Loading spinner */
+  .loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(0,0,0,.3);
+    border-radius: 50%;
+    border-top-color: var(--primary-color);
+    animation: spin 1s ease-in-out infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  

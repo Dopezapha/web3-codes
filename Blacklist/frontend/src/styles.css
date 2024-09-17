@@ -1,0 +1,132 @@
+:root {
+    --primary-color: #3498db;
+    --secondary-color: #2ecc71;
+    --background-color: #f4f6f8;
+    --text-color: #2c3e50;
+    --panel-background: #ffffff;
+    --button-hover: #2980b9;
+    --error-color: #e74c3c;
+  }
+  
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+  
+  .app-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 30px;
+  }
+  
+  h1 {
+    color: var(--primary-color);
+    margin: 0;
+  }
+  
+  h2 {
+    color: var(--secondary-color);
+    margin-top: 0;
+  }
+  
+  .panel {
+    background-color: var(--panel-background);
+    border-radius: 8px;
+    padding: 30px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .form-group {
+    margin-bottom: 20px;
+  }
+  
+  .input {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+  }
+  
+  .button {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    margin-right: 10px;
+    margin-bottom: 10px;
+  }
+  
+  .button:hover {
+    background-color: var(--button-hover);
+  }
+  
+  .button:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+  }
+  
+  .status {
+    font-weight: bold;
+    padding: 10px;
+    border-radius: 4px;
+  }
+  
+  .status.restricted {
+    background-color: var(--error-color);
+    color: white;
+  }
+  
+  .status.not-restricted {
+    background-color: var(--secondary-color);
+    color: white;
+  }
+  
+  .user-info {
+    display: flex;
+    align-items: center;
+  }
+  
+  .user-info span {
+    margin-right: 10px;
+  }
+  
+  @media (max-width: 768px) {
+    .app-container {
+      padding: 10px;
+    }
+  
+    .panel {
+      padding: 20px;
+    }
+  
+    .header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  
+    .user-info {
+      margin-top: 10px;
+    }
+  }
+  

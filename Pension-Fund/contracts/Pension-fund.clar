@@ -1,4 +1,4 @@
-;; Enhanced Pension Fund Smart Contract (Updated)
+;; Enhanced Pension Fund Smart Contract (Updated with Corrections)
 
 ;; Define constants
 (define-constant CONTRACT_OWNER tx-sender)
@@ -9,6 +9,7 @@
 (define-constant ERR_INVALID_OPTION (err u104))
 (define-constant ERR_NOT_EMPLOYER (err u105))
 (define-constant ERR_INVALID_INPUT (err u106))
+(define-constant ERR_ALREADY_REGISTERED (err u107))
 (define-constant VESTING_PERIOD_YEARS u5) ;; 5 years vesting period
 (define-constant EARLY_WITHDRAWAL_PENALTY_PERCENT u10) ;; 10% penalty
 (define-constant MAX_RETIREMENT_AGE u100)
@@ -195,6 +196,7 @@
   (let ((option-id (var-get NEXT_INVESTMENT_OPTION_ID)))
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
     (asserts! (<= risk-level u10) ERR_INVALID_INPUT) ;; Assuming risk level is between 0 and 10
+    (asserts! (> (len option-name) u0) ERR_INVALID_INPUT)
     (ok (begin
       (map-set INVESTMENT_OPTIONS option-id { OPTION_NAME: option-name, RISK_LEVEL: risk-level })
       (var-set NEXT_INVESTMENT_OPTION_ID (+ option-id u1))
@@ -207,6 +209,7 @@
 (define-public (register-employer (employer-address principal))
   (begin
     (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+    (asserts! (is-none (map-get? REGISTERED_EMPLOYERS employer-address)) ERR_ALREADY_REGISTERED)
     (ok (map-set REGISTERED_EMPLOYERS employer-address true))
   )
 )
@@ -215,12 +218,12 @@
 (define-public (set-employee-employer (employee-address principal) (employer-address principal))
   (begin
     (asserts! (is-employer tx-sender) ERR_NOT_EMPLOYER)
-    (match (map-get? USER_PROFILE employee-address)
-      profile (ok (map-set USER_PROFILE 
-                  employee-address 
-                  (merge profile { EMPLOYER_ADDRESS: (some employer-address) })
-                ))
-      ERR_NOT_AUTHORIZED
-    )
+    (asserts! (is-employer employer-address) ERR_NOT_EMPLOYER)
+    (asserts! (is-some (map-get? USER_PROFILE employee-address)) ERR_NOT_AUTHORIZED)
+    (ok (map-set USER_PROFILE 
+      employee-address 
+      (merge (unwrap-panic (map-get? USER_PROFILE employee-address))
+             { EMPLOYER_ADDRESS: (some employer-address) })
+    ))
   )
 )
